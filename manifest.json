@@ -1,0 +1,9 @@
+{
+  "id": "metro-nodes",
+  "name": "Metro Nodes",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "See your vault as a metro map: links become lines, notes become stations.",
+  "author": "latesailor",
+  "isDesktopOnly": false
+}

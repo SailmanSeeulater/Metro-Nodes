@@ -1,0 +1,8 @@
+node_modules/
+main.js
+harness/dist/
+harness/data/
+*.map
+.DS_Store
+demo-vault/.obsidian/plugins/
+demo-vault/.obsidian/workspace*.json

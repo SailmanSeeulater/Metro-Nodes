@@ -1,0 +1,21 @@
+{
+  "name": "metro-nodes",
+  "version": "0.1.0",
+  "description": "Obsidian plugin that draws your vault as a metro / subway map.",
+  "main": "main.js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "harness": "node scripts/vault-to-json.mjs && node esbuild.config.mjs harness",
+    "install-plugin": "node scripts/install.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.8.0",
+    "typescript": "~5.9.0"
+  }
+}
