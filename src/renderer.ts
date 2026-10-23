@@ -185,8 +185,16 @@ export class MetroRenderer {
 			if (st.ghost) g.classList.add("mn-ghost");
 			const color = this.lineById.get(st.lines[0])?.color ?? "currentColor";
 			g.style.setProperty("--mn-color", color);
-			el("circle", { class: "mn-halo", cx: st.x, cy: st.y, r: r + 7 }, g);
-			el("circle", { class: "mn-dot", cx: st.x, cy: st.y, r }, g);
+			if (st.yEnd > st.y) {
+				// Capsule interchange spanning several parallel lines.
+				const capsule = (cls: string, rr: number) =>
+					el("rect", { class: cls, x: st.x - rr, y: st.y - rr, width: 2 * rr, height: st.yEnd - st.y + 2 * rr, rx: rr }, g);
+				capsule("mn-halo", r + 7);
+				capsule("mn-dot", r);
+			} else {
+				el("circle", { class: "mn-halo", cx: st.x, cy: st.y, r: r + 7 }, g);
+				el("circle", { class: "mn-dot", cx: st.x, cy: st.y, r }, g);
+			}
 			this.stationEls.set(st.id, g);
 
 			const label = el("text", { class: "mn-label" }, this.labelLayer);
@@ -202,10 +210,11 @@ export class MetroRenderer {
 				// Names sit in a shared left gutter, like row headers, with a
 				// faint lead-in to where the line actually starts.
 				const gutter = layout.bounds.minX - 22;
-				const dy = Math.abs(first.y - line.homeY);
+				const firstY = first.yEnd > first.y ? line.homeY : first.y;
+				const dy = Math.abs(firstY - line.homeY);
 				if (first.x - gutter > 40 + dy) {
 					const d = dy
-						? `M${gutter + 8},${line.homeY} L${first.x - dy},${line.homeY} L${first.x},${first.y}`
+						? `M${gutter + 8},${line.homeY} L${first.x - dy},${line.homeY} L${first.x},${firstY}`
 						: `M${gutter + 8},${line.homeY} L${first.x - 12},${line.homeY}`;
 					el("path", { class: "mn-leadin", d, stroke: line.color }, this.crossLayer);
 				}
@@ -292,7 +301,7 @@ export class MetroRenderer {
 		const dotBoxes = new Map<string, Box>();
 		for (const st of layout.stations) {
 			const r = this.radius.get(st.id)! + pad;
-			const b: Box = [st.x - r, st.y - r, 2 * r, 2 * r];
+			const b: Box = [st.x - r, st.y - r, 2 * r, st.yEnd - st.y + 2 * r];
 			dotBoxes.set(st.id, b);
 			add(b);
 		}
@@ -336,16 +345,17 @@ export class MetroRenderer {
 			sides.push("diag");
 			const DIAG = (40 * Math.PI) / 180;
 			const diagStart = { x: st.x + r * 0.75, y: st.y - r * 0.75 - pad };
+			const midY = (st.y + st.yEnd) / 2;
 			const boxesFor = (side: LabelSide): Box[] => {
 				switch (side) {
 					case "above": return [[st.x - w / 2, st.y - r - pad - h, w, h]];
-					case "below": return [[st.x - w / 2, st.y + r + pad, w, h]];
-					case "right": return [[st.x + r + 0.4 * f, st.y - h / 2, w, h]];
-					case "left": return [[st.x - r - 0.4 * f - w, st.y - h / 2, w, h]];
+					case "below": return [[st.x - w / 2, st.yEnd + r + pad, w, h]];
+					case "right": return [[st.x + r + 0.4 * f, midY - h / 2, w, h]];
+					case "left": return [[st.x - r - 0.4 * f - w, midY - h / 2, w, h]];
 					case "aboveR": return [[st.x - r, st.y - r - pad - h, w, h]];
-					case "belowR": return [[st.x - r, st.y + r + pad, w, h]];
+					case "belowR": return [[st.x - r, st.yEnd + r + pad, w, h]];
 					case "aboveL": return [[st.x + r - w, st.y - r - pad - h, w, h]];
-					case "belowL": return [[st.x + r - w, st.y + r + pad, w, h]];
+					case "belowL": return [[st.x + r - w, st.yEnd + r + pad, w, h]];
 					case "diag": {
 						const n = Math.max(1, Math.ceil(w / (h * 0.9)));
 						const side = h * 0.8;
@@ -437,7 +447,7 @@ export class MetroRenderer {
 		const h = this.root.clientHeight;
 		this.k = Math.max(this.k, minZoom);
 		this.tx = (w > 700 ? w - 280 : w) / 2 - st.x * this.k;
-		this.ty = h / 2 - st.y * this.k;
+		this.ty = h / 2 - ((st.y + st.yEnd) / 2) * this.k;
 		this.viewport.classList.add("mn-animate");
 		this.applyTransform(true);
 		window.setTimeout(() => this.viewport.classList.remove("mn-animate"), 400);

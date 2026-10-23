@@ -271,6 +271,14 @@
 	color: var(--mn-text);
 }
 
+.metro-nodes button.mn-untangle {
+	gap: 5px;
+	padding: 3px 9px 3px 7px;
+}
+.mn-btn-icon {
+	display: inline-flex;
+}
+
 .mn-focus {
 	display: flex;
 	align-items: center;

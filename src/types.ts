@@ -37,6 +37,8 @@ export interface MetroSettings {
 	showUnresolved: boolean;
 	showOrphans: boolean;
 	excludeFolders: string;
+	/** Layout that never lets lines cross or share track (uses more space). */
+	untangle: boolean;
 	focusActive: boolean;
 	focusDepth: number;
 	crossLinks: CrossLinks;
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: MetroSettings = {
 	showUnresolved: true,
 	showOrphans: true,
 	excludeFolders: "",
+	untangle: false,
 	focusActive: false,
 	focusDepth: 3,
 	crossLinks: "hover",
@@ -83,7 +86,9 @@ export interface Station {
 	col: number;
 	lane: number;
 	x: number;
+	/** Top of the station; equals yEnd except for capsule interchanges. */
 	y: number;
+	yEnd: number;
 	/** Ids of every line that stops here. */
 	lines: string[];
 	kind: StationKind;

@@ -58,6 +58,8 @@ interface Placement {
 	lane: Map<string, number>;
 	lines: RawLine[];
 	hiddenCount: number;
+	/** Capsule interchanges: first and last lane they cover. */
+	span?: Map<string, [number, number]>;
 }
 
 export function buildLayout(
@@ -327,23 +329,28 @@ function placeTree(
 		lineLane.set(line.id, chosen.l);
 	};
 
-	// Branches of one line are placed right-to-left: later forks hug the
-	// parent, earlier ones wrap around them, so siblings nest instead of cross.
 	const childLines = new Map<string, RawLine[]>();
 	for (const l of lines) {
 		if (!l.parent) continue;
 		if (!childLines.has(l.parent)) childLines.set(l.parent, []);
 		childLines.get(l.parent)!.push(l);
 	}
-	const visit = (line: RawLine) => {
-		const ks = (childLines.get(line.id) ?? []).sort(
-			(a, b) => col.get(b.stations[0])! - col.get(a.stations[0])!,
-		);
-		for (const k of ks) placeLine(k);
-		for (const k of ks) visit(k);
-	};
-	placeLine(lines[0]);
-	visit(lines[0]);
+
+	if (s.untangle) {
+		placeUntangled(lines, childLines, col, lane, lineLane);
+	} else {
+		// Branches of one line are placed right-to-left: later forks hug the
+		// parent, earlier ones wrap around them, so siblings nest instead of cross.
+		const visit = (line: RawLine) => {
+			const ks = (childLines.get(line.id) ?? []).sort(
+				(a, b) => col.get(b.stations[0])! - col.get(a.stations[0])!,
+			);
+			for (const k of ks) placeLine(k);
+			for (const k of ks) visit(k);
+		};
+		placeLine(lines[0]);
+		visit(lines[0]);
+	}
 	for (const line of lines) line.lane = lineLane.get(line.id)!;
 
 	let minLane = 0;
@@ -355,6 +362,75 @@ function placeTree(
 	}
 	for (const c of col.values()) maxCol = Math.max(maxCol, c);
 	return { lines, col, lane, w: maxCol + 1, h: maxLane - minLane + 1, minLane, size: order.length };
+}
+
+/**
+ * Crossing-free variant: no lane is ever shared. Each branch's whole subtree
+ * gets its own band of lanes beside the line it leaves, and branches that fork
+ * later sit closer to that line, so a branch never has to cut across another.
+ */
+function placeUntangled(
+	lines: RawLine[],
+	childLines: Map<string, RawLine[]>,
+	col: Map<string, number>,
+	lane: Map<string, number>,
+	lineLane: Map<string, number>,
+) {
+	// Branches leave one column after their interchange (lines are in BFS order).
+	for (const line of lines) {
+		if (!line.parent) {
+			line.stations.forEach((id, i) => col.set(id, i));
+		} else {
+			const forkCol = col.get(line.stations[0])!;
+			line.stations.slice(1).forEach((id, i) => col.set(id, forkCol + 1 + i));
+		}
+	}
+	// A line starting at the last stop of its parent carries straight on.
+	const chainFrom = (head: RawLine) => {
+		const chain: RawLine[] = [];
+		for (let l: RawLine | undefined = head; l; ) {
+			chain.push(l);
+			const last: string = l.stations[l.stations.length - 1];
+			l = (childLines.get(l.id) ?? []).find((c) => c.stations[0] === last);
+		}
+		return chain;
+	};
+	const branchesOf = (chain: RawLine[]) => {
+		const inChain = new Set(chain);
+		return chain
+			.flatMap((l) => childLines.get(l.id) ?? [])
+			.filter((b) => !inChain.has(b))
+			.sort((a, b) => col.get(b.stations[0])! - col.get(a.stations[0])!);
+	};
+
+	const offset = new Map<string, number>();
+	const extents = (head: RawLine): { up: number; down: number } => {
+		let top = 0;
+		let bottom = 0;
+		branchesOf(chainFrom(head)).forEach((b, i) => {
+			const e = extents(b);
+			if (i % 2 === 0) {
+				const off = bottom + 1 + e.up;
+				offset.set(b.id, off);
+				bottom = off + e.down;
+			} else {
+				const off = top - 1 - e.down;
+				offset.set(b.id, off);
+				top = off - e.up;
+			}
+		});
+		return { up: -top, down: bottom };
+	};
+	const assign = (head: RawLine, l0: number) => {
+		const chain = chainFrom(head);
+		for (const line of chain) {
+			lineLane.set(line.id, l0);
+			for (const id of line.parent ? line.stations.slice(1) : line.stations) lane.set(id, l0);
+		}
+		for (const b of branchesOf(chain)) assign(b, l0 + offset.get(b.id)!);
+	};
+	extents(lines[0]);
+	assign(lines[0], 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -461,9 +537,23 @@ function placeGroups(recs: NoteRecord[], s: MetroSettings): Placement {
 	const lastLane = new Map<string, number>(laneOrder.map((k) => [k, home.get(k)!]));
 	const stations = new Map<string, string[]>(laneOrder.map((k) => [k, []]));
 
+	const span = new Map<string, [number, number]>();
 	for (const id of ids) {
 		const ks = members.get(id)!;
 		const lanes = ks.map((k) => home.get(k)!).sort((a, b) => a - b);
+		if (s.untangle) {
+			// Lines stay on their own lane; the interchange is a capsule that
+			// spans them, so nothing bends and no track is shared.
+			const [lo, hi] = [lanes[0], lanes[lanes.length - 1]];
+			const touched = laneOrder.filter((k) => ks.includes(k) || (home.get(k)! > lo && home.get(k)! < hi));
+			const c = Math.max(0, ...touched.map((k) => (lastCol.has(k) ? lastCol.get(k)! + 1 : 0)));
+			col.set(id, c);
+			lane.set(id, lo);
+			if (hi > lo) span.set(id, [lo, hi]);
+			for (const k of touched) lastCol.set(k, c);
+			for (const k of ks) stations.get(k)!.push(id);
+			continue;
+		}
 		const y = lanes[Math.floor((lanes.length - 1) / 2)];
 		let req = 0;
 		let maxSteps = 0;
@@ -500,14 +590,14 @@ function placeGroups(recs: NoteRecord[], s: MetroSettings): Placement {
 		colorKey: `${s.mode}:${k}`,
 		fixedColor: k === "Unsorted" ? ORPHAN_COLOR : undefined,
 	}));
-	return { col, lane, lines, hiddenCount };
+	return { col, lane, lines, hiddenCount, span };
 }
 
 // ---------------------------------------------------------------------------
 // Shared: coordinates, station kinds, track routing, colours
 
 /** Octilinear route from a to b. Lines prefer to run on their home lane. */
-export function route(a: Pt, b: Pt, home: number): Pt[] {
+export function route(a: Pt, b: Pt, home: number, vertical = false): Pt[] {
 	const dx = b.x - a.x;
 	const offA = Math.abs(a.y - home);
 	const offB = Math.abs(b.y - home);
@@ -515,6 +605,10 @@ export function route(a: Pt, b: Pt, home: number): Pt[] {
 		return [{ x: a.x + offA, y: home }, { x: b.x - offB, y: home }, b];
 	}
 	const ady = Math.abs(b.y - a.y);
+	if (vertical && dx > 0 && ady > dx) {
+		// Drop straight down/up, then ease in at 45°.
+		return [{ x: a.x, y: b.y - Math.sign(b.y - a.y) * dx }, b];
+	}
 	if (dx <= 0 || ady === 0 || ady >= dx) return [b];
 	if (a.y !== home) return [{ x: a.x + ady, y: b.y }, b];
 	return [{ x: b.x - ady, y: a.y }, b];
@@ -525,6 +619,7 @@ function finish(mode: MetroMode, p: Placement, g: Graph, s: MetroSettings): Metr
 	for (const [id, c] of p.col) {
 		const n = g.get(id);
 		const l = p.lane.get(id)!;
+		const sp = p.span?.get(id);
 		byId.set(id, {
 			id,
 			title: n?.title ?? id,
@@ -532,6 +627,7 @@ function finish(mode: MetroMode, p: Placement, g: Graph, s: MetroSettings): Metr
 			lane: l,
 			x: c * s.columnSpacing,
 			y: l * s.laneSpacing,
+			yEnd: (sp ? sp[1] : l) * s.laneSpacing,
 			lines: [],
 			kind: "stop",
 			ghost: n?.ghost ?? false,
@@ -557,8 +653,10 @@ function finish(mode: MetroMode, p: Placement, g: Graph, s: MetroSettings): Metr
 		raw.stations.forEach((id, i) => {
 			const st = byId.get(id)!;
 			if (!st.lines.includes(raw.id)) st.lines.push(raw.id);
-			if (i === 0) pts.push({ x: st.x, y: st.y });
-			else pts.push(...route(pts[pts.length - 1], { x: st.x, y: st.y }, home));
+			// Capsule stations: each line touches it on its own lane.
+			const at = { x: st.x, y: st.yEnd > st.y ? home : st.y };
+			if (i === 0) pts.push(at);
+			else pts.push(...route(pts[pts.length - 1], at, home, s.untangle));
 		});
 		lines.push({ ...raw, color, points: pts, homeY: home });
 	}
@@ -596,7 +694,7 @@ function finish(mode: MetroMode, p: Placement, g: Graph, s: MetroSettings): Metr
 		bounds.minX = Math.min(...stations.map((st) => st.x));
 		bounds.maxX = Math.max(...stations.map((st) => st.x));
 		bounds.minY = Math.min(...stations.map((st) => st.y));
-		bounds.maxY = Math.max(...stations.map((st) => st.y));
+		bounds.maxY = Math.max(...stations.map((st) => st.yEnd));
 	}
 	return {
 		mode,

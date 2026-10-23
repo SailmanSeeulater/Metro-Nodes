@@ -30,6 +30,15 @@ export class MetroSettingTab extends PluginSettingTab {
 					}),
 			);
 		new Setting(containerEl)
+			.setName("Untangle lines")
+			.setDesc("Give every line its own lane so lines never cross or share track. Takes more vertical room. Also on the map toolbar.")
+			.addToggle((t) =>
+				t.setValue(s.untangle).onChange(async (v) => {
+					s.untangle = v;
+					await save();
+				}),
+			);
+		new Setting(containerEl)
 			.setName("Excluded folders")
 			.setDesc("Comma-separated folder paths left off the map, e.g. Templates, Archive.")
 			.addText((t) =>

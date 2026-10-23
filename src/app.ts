@@ -35,6 +35,7 @@ export class MetroApp {
 	private layout: MetroLayout | null = null;
 	private modeButtons = new Map<MetroMode, HTMLButtonElement>();
 	private focusBtn!: HTMLButtonElement;
+	private untangleBtn!: HTMLButtonElement;
 	private depthSel!: HTMLSelectElement;
 	private searchInput!: HTMLInputElement;
 	private searchCount!: HTMLSpanElement;
@@ -118,6 +119,21 @@ export class MetroApp {
 			seg.appendChild(b);
 			this.modeButtons.set(m.mode, b);
 		}
+
+		this.untangleBtn = document.createElement("button");
+		this.untangleBtn.className = "mn-btn mn-untangle";
+		this.untangleBtn.title = "Untangle: lines never cross or share track (takes more room)";
+		this.untangleBtn.setAttribute("aria-label", this.untangleBtn.title);
+		const uIcon = document.createElement("span");
+		uIcon.className = "mn-btn-icon";
+		this.icon(uIcon, "unfold-vertical", "≡");
+		this.untangleBtn.append(uIcon, document.createTextNode("Untangle"));
+		this.untangleBtn.addEventListener("click", () => {
+			this.host.settings.untangle = !this.host.settings.untangle;
+			this.host.saveSettings();
+			this.refresh(false);
+		});
+		bar.appendChild(this.untangleBtn);
 
 		const focus = div("mn-focus", bar);
 		this.focusBtn = this.button(focus, "mn-focus-btn", "Only show the neighbourhood of the active note", "locate-fixed", "◎", () => {
@@ -236,6 +252,8 @@ export class MetroApp {
 		const linkMode = s.mode === "links";
 		this.focusBtn.parentElement!.classList.toggle("mn-off", !linkMode);
 		this.focusBtn.classList.toggle("mn-on", s.focusActive);
+		this.untangleBtn.classList.toggle("mn-on", s.untangle);
+		this.untangleBtn.setAttribute("aria-pressed", String(s.untangle));
 		this.depthSel.value = String(s.focusDepth);
 		this.depthSel.disabled = !s.focusActive;
 	}
